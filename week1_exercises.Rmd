@@ -1,0 +1,380 @@
+---
+title: 'compgen2021: Week 1 exercises'
+author: 'Jennifer Gerbracht'
+output:
+  pdf_document: default
+  pdf: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Exercises for Week1
+
+## Statistics for genomics 
+
+### How to summarize collection of data points: The idea behind statistical distributions
+
+```{r, message = FALSE, warning = FALSE}
+#Load required libraries
+library(matrixStats)
+library(mosaic)
+library(qvalue)
+library(knitr)
+```
+
+1. Calculate the means and variances 
+of the rows of the following simulated data set, and plot the distributions
+of means and variances using `hist()` and `boxplot()` functions. [Difficulty: **Beginner/Intermediate**]  
+```{r getDataChp3Ex, fig.show = "hold", out.width = "50%", message = FALSE, warning = FALSE}
+set.seed(100)
+#sample data matrix from normal distribution
+gset=rnorm(600,mean=200,sd=70)
+data=matrix(gset,ncol=6)
+#Calculate the means of the rows
+rowmeans <- rowMeans(data)
+#Calculate the variances of the rows
+rowvars <- rowVars(data)
+#Plot the distributions
+par(mar = c(4, 4, 1, 0.1))
+hist(rowmeans,
+     main = "Histogram of row means",
+     xlab = "row means",
+     ylab = "frequency")
+hist(rowvars,
+     main = "Histogram of row variances",
+     xlab = "row means",
+     ylab = "frequency")
+boxplot(rowmeans,
+        main = "Boxplot of row means",
+        ylab = "row means")
+boxplot(rowvars,
+        main = "Boxplot of row variances",
+        ylab = "row variances")
+```
+
+2. Using the data generated above, calculate the standard deviation of the
+distribution of the means using the `sd()` function. Compare that to the expected
+standard error obtained from the central limit theorem keeping in mind the
+population parameters were  $\sigma=70$ and $n=6$. How does the estimate from the random samples change if we simulate more data with
+`data=matrix(rnorm(6000,mean=200,sd=70),ncol=6)`? [Difficulty: **Beginner/Intermediate**] 
+```{r}
+#Calculate the standard deviation of the distribution of the means
+rowmeans_sd <- sd(rowmeans)
+print(paste("The standard deviation of the distribution of the means is:", rowmeans_sd))
+#Compare that to the expected standard error obtained from the CLT?
+#The standard error of the mean is the standard deviation divided by the square root of n
+CLT_sd <- 70 / sqrt(6)
+print(paste("The standard error of the mean obtained from the CLT is:", CLT_sd))
+```
+The expected value is close to the computed one above.
+```{r}
+#Calculate the standard deviation of the distribution of the means with more simulated data
+data <- matrix(rnorm(6000, mean = 200, sd = 70), ncol = 6)
+rowmeans_sd_more <- sd(rowMeans(data))
+```
+The SD does not change much since the population standard deviation and the sample size 
+stays the same.If we would increase the sample size the standard deviation of the 
+distribution of the means would decrease.
+
+
+3. Simulate 30 random variables using the `rpois()` function. Do this 1000 times and calculate the mean of each sample. Plot the sampling distributions of the means
+using a histogram. Get the 2.5th and 97.5th percentiles of the
+distribution. [Difficulty: **Beginner/Intermediate**] 
+```{r}
+#Simulate data
+pois_means <- do(1000) * mean(rpois(30,lambda = 5))
+#Plot the distribution of the means
+hist(pois_means$mean,
+     main = "Histogram of the means",
+     xlab = "means",
+     ylab = "frequency")
+#Calculate the 2.5th and 97.5th percentiles of the distribution 
+quantile(pois_means$mean, p = c(0.025, 0.975))
+```
+
+4. Use the `t.test()` function to calculate confidence intervals
+of the mean on the first random sample `pois1` simulated from the `rpois()` function below. [Difficulty: **Intermediate**] 
+```{r exRpoisChp3}
+#HINT
+set.seed(100)
+#sample 30 values from poisson dist with lamda paramater =30
+pois1=rpois(30,lambda=5)
+#Use the t.test() function
+pois1_ttest <- stats::t.test(pois1)
+#The confidence interval is:
+print(pois1_ttest$conf.int)
+```
+
+5. Use the bootstrap confidence interval for the mean on `pois1`. [Difficulty: **Intermediate/Advanced**] 
+```{r}
+boot_means <- do(1000) * mean(resample(pois1))
+boot_conf <- quantile(boot_means$mean, p = c(0.025, 0.975))
+#The bootstrap confidence interval is:
+print(boot_conf)
+```
+
+### How to test for differences in samples
+1. Test the difference of means of the following simulated genes
+using the randomization, `t-test()`, and `wilcox.test()` functions.
+Plot the distributions using histograms and boxplots. [Difficulty: **Intermediate/Advanced**] 
+```{r exRnorm1chp3, fig.show = "hold", out.width = "50%"}
+set.seed(101)
+gene1=rnorm(30,mean=4,sd=3)
+gene2=rnorm(30,mean=3,sd=3)
+
+#Randomization
+gene_df <- data.frame(exp = c(gene1, gene2),
+                      group = c(rep("gene1", 30), rep("gene2", 30)))
+mean_diff <- mean(gene1 - mean(gene2))
+exp_null <- do(1000) * diff(mosaic::mean(exp ~ shuffle(group), data = gene_df))
+p.val <- sum(exp_null[,1] > mean_diff)/length(exp_null[,1])
+print(p.val)
+```
+In 0.057% of draws we observe a difference in means such as the one tested.
+```{r}
+#t-test
+gene_ttest <- stats::t.test(gene1, gene2)
+print(gene_ttest$p.value)
+
+#wilcox test
+gene_wilcox <- wilcox.test(gene1, gene2)
+print(gene_wilcox$p.value)
+
+#Plot the distributions of the simulated genes
+par(mar = c(4, 4, 1, 0.1))
+hist(gene1,
+     main = "Histogram of \"gene1\"",
+     xlab = "values",
+     ylab = "frequency")
+hist(gene2,
+     main = "Histogram of \"gene 2\"",
+     xlab = "values",
+     ylab = "frequency")
+boxplot(gene1,
+        main = "Boxplot of \"gene1\"",
+        ylab = "values")
+boxplot(gene2,
+        main = "Boxplot of \"gene2\"",
+        ylab = "values")
+```
+
+2. Test the difference of the means of the following simulated genes
+using the randomization, `t-test()` and `wilcox.test()` functions.
+Plot the distributions using histograms and boxplots. [Difficulty: **Intermediate/Advanced**] 
+```{r exRnorm2chp3, fig.show = "hold", out.width = "50%"}
+set.seed(100)
+gene1=rnorm(30,mean=4,sd=2)
+gene2=rnorm(30,mean=2,sd=2)
+
+#Randomization
+gene_df <- data.frame(exp = c(gene1, gene2),
+                      group = c(rep("gene1", 30), rep("gene2", 30)))
+mean_diff <- mean(gene1 - mean(gene2))
+exp_null <- do(1000) * diff(mosaic::mean(exp ~ shuffle(group), data = gene_df))
+p.val <- sum(exp_null[,1] > mean_diff)/length(exp_null[,1])
+print(p.val)
+```
+In 0% of draws we observe a difference in means such as the one tested.
+```{r}
+#t-test
+gene_ttest <- stats::t.test(gene1, gene2)
+print(gene_ttest$p.value)
+
+#wilcox test
+gene_wilcox <- wilcox.test(gene1, gene2)
+print(gene_wilcox$p.value)
+
+#Plot the distributions of the simulated genes
+par(mar = c(4, 4, 1, 0.1))
+hist(gene1,
+     main = "Histogram of \"gene1\"",
+     xlab = "values",
+     ylab = "frequency")
+hist(gene2,
+     main = "Histogram of \"gene 2\"",
+     xlab = "values",
+     ylab = "frequency")
+boxplot(gene1,
+        main = "Boxplot of \"gene1\"",
+        ylab = "values")
+boxplot(gene2,
+        main = "Boxplot of \"gene2\"",
+        ylab = "values")
+```
+
+3. We need an extra data set for this exercise. Read the gene expression data set as follows:
+`gexpFile=system.file("extdata","geneExpMat.rds",package="compGenomRData") data=readRDS(gexpFile)`. The data has 100 differentially expressed genes. The first 3 columns are the test samples, and the last 3 are the control samples. Do 
+a t-test for each gene (each row is a gene), and record the p-values.
+Then, do a moderated t-test, as shown in section "Moderated t-tests" in this chapter, and record 
+the p-values. Make a p-value histogram and compare two approaches in terms of the number of significant tests with the $0.05$ threshold.
+On the p-values use FDR (BH), Bonferroni and q-value adjustment methods.
+Calculate how many adjusted p-values are below 0.05 for each approach.
+[Difficulty: **Intermediate/Advanced**] 
+```{r, fig.show = "hold", out.width = "50%"}
+gexpFile <- system.file("extdata",
+                        "geneExpMat.rds",
+                        package="compGenomRData") 
+data <- readRDS(gexpFile)
+group1 <- c(1:3)
+group2 <- c(4:6)
+
+#Perform a t-test for each row (Welch approximation, assuming unequal variances)
+pvals_ttest <- apply(data,
+               1,
+               function(x) stats::t.test(x[group1], x[group2])$p.value)
+
+#Perform moderated t-tests
+dx <- rowMeans(data[,group1]) - rowMeans(data[,group2])
+n1 <- 3
+n2 <- 3
+
+stderr <- sqrt((rowVars(data[,group1]) * (n1 - 1) +
+                  rowVars(data[,group2]) * (n2 - 1)) /
+                 (n1 + n2 -2) * (1/n1 + 1/n2))
+mod_stderr <- (stderr + median(stderr)) / 2
+t_mod <- dx / mod_stderr
+p_mod <- 2 * pt(-abs(t_mod), n1 + n2 - 2)
+
+#Make histograms for both approaches
+hist(pvals_ttest,
+     main = "pvalues t-test",
+     xlab = "pvalues",
+     ylab = "frequency",
+     breaks = 20)
+abline(v = 0.05, col = "red")
+mtext(paste("signifcant tests:", sum(pvals_ttest < 0.05)))
+hist(p_mod,
+     main = "pvalues moderated t-test",
+     xlab = "pvalues",
+     ylab = "frequency",
+     breaks = 20)
+abline(v = 0.05, col = "red")
+mtext(paste("signifcant tests:", sum(p_mod < 0.05)))
+```
+```{r}
+#t-test
+#multiple testing correction
+pvals_ttest_bonferroni <- p.adjust(pvals_ttest, method = "bonferroni")
+pvals_ttest_bh <- p.adjust(pvals_ttest, method = "BH")
+pvals_ttest_qvalue <- qvalue(pvals_ttest)$qvalues
+
+#moderated t-test
+#multiple testing correction
+p_mod_bonferroni <- p.adjust(p_mod, method = "bonferroni")
+p_mod_bh <- p.adjust(p_mod, method = "BH")
+p_mod_qvalue <- qvalue(p_mod)$qvalues
+
+df_pvals <- cbind(pvals_ttest_bonferroni,
+                  pvals_ttest_bh,
+                  pvals_ttest_qvalue,
+                  p_mod_bonferroni,
+                  p_mod_bh,
+                  p_mod_qvalue)
+```
+```{r}
+#How many adjusted pvalues are < 0.05 for each approach?
+kable(apply(df_pvals, 2, function(x) sum(x < 0.05)))
+```
+
+### Relationship between variables: Linear models and correlation
+
+Below we are going to simulate X and Y values that are needed for the 
+rest of the exercise.
+```{r exLM1chp3}
+# set random number seed, so that the random numbers from the text
+# is the same when you run the code.
+set.seed(32)
+# get 50 X values between 1 and 100
+x = runif(50,1,100)
+# set b0,b1 and variance (sigma)
+b0 = 10
+b1 = 2
+sigma = 20
+# simulate error terms from normal distribution
+eps = rnorm(50,0,sigma)
+# get y values from the linear equation and addition of error terms
+y = b0 + b1*x+ eps
+```
+
+
+1. Run the code then fit a line to predict Y based on X. [Difficulty:**Intermediate**] 
+```{r}
+mod1 = lm(y ~ x)
+```
+
+2. Plot the scatter plot and the fitted line. [Difficulty:**Intermediate**] 
+```{r}
+plot(x , y,
+     main = "Scatter plot",
+     pch=20,
+     ylab = "y", xlab = "x")
+abline(mod1, col = "blue")
+```
+
+3. Calculate correlation and R^2. [Difficulty:**Intermediate**] 
+```{r}
+#Calculate correlation
+cor(x,y)
+#Calculate R^2
+cor(x,y)^2
+```
+
+4. Run the `summary()` function and 
+try to extract P-values for the model from the object
+returned by `summary`. See `?summary.lm`. [Difficulty:**Intermediate/Advanced**] 
+```{r}
+summary(mod1)$coefficients[,4]
+```
+
+5. Plot the residuals vs. the fitted values plot, by calling the `plot()` 
+function with `which=1` as the second argument. First argument
+is the model returned by `lm()`. [Difficulty:**Advanced**] 
+```{r}
+plot(mod1, which = 1)
+```
+
+
+6. For the next exercises, read the data set histone modification data set. Use the following to get the path to the file:
+```
+hmodFile=system.file("extdata",
+                    "HistoneModeVSgeneExp.rds",
+                     package="compGenomRData")
+```
+There are 3 columns in the dataset. These are measured levels of H3K4me3,
+H3K27me3 and gene expression per gene. Once you read in the data, plot the scatter plot for H3K4me3 vs. expression. [Difficulty:**Beginner**] 
+```{r}
+hmodFile <- system.file("extdata",
+                        "HistoneModeVSgeneExp.rds",
+                        package = "compGenomRData")
+data <- readRDS(hmodFile)
+plot(data$H3k4me3, data$measured_log2,
+     main = "H3K4me3 vs. expression",
+     xlab = "H3K4me3",
+     ylab = "gene expression")
+```
+
+7. Plot the scatter plot for H3K27me3 vs. expression. [Difficulty:**Beginner**] 
+```{r}
+plot(data$H3k27me3, data$measured_log2,
+     main = "H3K27me3 vs. expression",
+     xlab = "H3k27me3",
+     ylab = "gene expression")
+```
+
+8. Fit the model for prediction of expression data using: 1) Only H3K4me3 as explanatory variable, 2) Only H3K27me3 as explanatory variable, and 3) Using both H3K4me3 and H3K27me3 as explanatory variables. Inspect the `summary()` function output in each case, which terms are significant. [Difficulty:**Beginner/Intermediate**] 
+```{r}
+mod_k4 <- lm(data$measured_log2 ~ data$H3k4me3)
+mod_k27 <- lm(data$measured_log2 ~ data$H3k27me3)
+mod_both <- lm(data$measured_log2 ~ data$H3k4me3 + data$H3k27me3)
+
+summary(mod_k4)
+summary(mod_k27)
+summary(mod_both)
+```
+
+10. Is using H3K4me3 and H3K27me3 better than the model with only H3K4me3? [Difficulty:**Intermediate**] 
+In the model with both H3K4me3 and H3K27me3 the adjusted R^2is higher than the
+R^2 of the model with only H3K4me3 and all the predictors are significant, I would therefore chose the model
+with both.

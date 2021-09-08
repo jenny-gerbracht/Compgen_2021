@@ -1,0 +1,292 @@
+---
+title: 'compgen2021: Week 3 exercises'
+author: 'Jennifer Gerbracht'
+output:
+  pdf_document: default
+  latex_engine: xelatex
+---
+
+# Exercises for Week 3
+
+
+### Classification 
+For this set of exercises we will be using the gene expression and patient annotation data from the glioblastoma patient. You can read the data as shown below:
+```{r,readMLdataEx,eval=TRUE, message = FALSE, warning = FALSE}
+library(compGenomRData)
+library(caret)
+library(ranger)
+library(DALEX)
+library(e1071)
+library(glmnet)
+library(caretEnsemble)
+library(Metrics)
+# get file paths
+fileLGGexp=system.file("extdata",
+                      "LGGrnaseq.rds",
+                      package="compGenomRData")
+fileLGGann=system.file("extdata",
+                      "patient2LGGsubtypes.rds",
+                      package="compGenomRData")
+# gene expression values
+gexp=readRDS(fileLGGexp)
+# patient annotation
+patient=readRDS(fileLGGann)
+```
+
+1. Our first task is to not use any data transformation and do classification. Run the k-NN classifier on the data without any transformation or scaling. What is the effect on classification accuracy for k-NN predicting the CIMP and noCIMP status of the patient? [Difficulty: **Beginner**]
+
+**solution:**
+The classification accuracy for the training and test set (0.9 and 0.7778, respectively) are lower than in the 
+book example when the data was pre-processed (0.9846 and 0.963, respectively).
+
+```{r,echo=TRUE,eval=TRUE}
+#Transform matrix
+tgexp <- t(gexp)
+
+#Merge with CIMP classification
+tgexp <- merge(patient, tgexp, by = "row.names")
+rownames(tgexp) <- tgexp[,1]
+tgexp <- tgexp[,-1]
+
+#Seperate test and training sets
+set.seed(100) 
+intrain <- createDataPartition(y = tgexp[,1], p = 0.7)[[1]]
+training <- tgexp[intrain,]
+testing <- tgexp[-intrain,]
+
+#k-Nearest Neighbour Classification
+knnFit <- knn3(x = training[,-1],
+            y = training[,1],
+            k = 5)
+
+#classification accuracy for training set
+trainPred <- predict(knnFit, training[,-1], type = "class")
+confusionMatrix(data = training[,1], reference = trainPred)
+
+#classification accuracy for test set
+testPred <- predict(knnFit,testing[,-1], type = "class")
+confusionMatrix(data = testing[,1], reference = testPred)
+```
+
+2. Bootstrap resampling can be used to measure the variability of the prediction error. Use bootstrap resampling with k-NN for the prediction accuracy. How different is it from cross-validation for different $k$s? [Difficulty: **Intermediate**]
+
+**solution:**
+The best k for bootstrapping is really low (1) in comparison to cv (best k 8).
+
+```{r,echo=TRUE,eval=TRUE,fig.show="hold", out.width="50%"}
+tgexp <- t(gexp)
+SDs <- apply(tgexp, 2, sd)
+topPreds <- order(SDs, decreasing = TRUE)[1:1000]
+tgexp <- tgexp[,topPreds]
+
+#Merge with CIMP classification
+tgexp <- merge(patient, tgexp, by = "row.names")
+rownames(tgexp) <- tgexp[,1]
+tgexp <- tgexp[,-1]
+
+#Seperate test and training sets
+set.seed(100) 
+intrain <- createDataPartition(y = tgexp[,1], p = 0.7)[[1]]
+training <- tgexp[intrain,]
+testing <- tgexp[-intrain,]
+
+#Bootstrap sampling
+set.seed(100)
+trctrl <- trainControl(method = "boot", 
+                       number=20,
+                       returnResamp="all")
+
+#Train knn model
+knnFit_boot <- train(subtype ~., 
+                 data = training, 
+                 method = "knn",
+                 trControl = trctrl,
+                 tuneGrid = data.frame(k=1:12))
+
+# plot k vs prediction error
+plot(x = 1:12, 1 - knnFit_boot$results[,2], pch=19,
+     ylab = "prediction error", xlab = "k", main = "bootstrapping")
+lines(loess.smooth(x = 1:12,1 - knnFit_boot$results[,2], degree = 2),
+      col = "#CC0000")
+
+# 10-fold cross validation
+set.seed(100)
+trctrl <- trainControl(method = "cv", 
+                       number = 10)
+
+#Train knn model
+knnFit_cv <- train(subtype ~., 
+                   data = training,
+                   method = "knn",
+                   trControl= trctrl,
+                   tuneGrid = data.frame(k = 1:12))
+
+plot(x = 1:12, 1 - knnFit_cv$results[,2], pch=19,
+     ylab = "prediction error", xlab = "k", main = "cv")
+lines(loess.smooth(x = 1:12, 1 - knnFit_cv$results[,2], degree = 2),
+      col = "#CC0000")
+```      
+
+3. There are a number of ways to get variable importance for a classification problem. Run random forests on the classification problem above. Compare the variable importance metrics from random forest and the one obtained from DALEX applied on the random forests model. How many variables are the same in the top 10? [Difficulty: **Advanced**]
+
+**solution:**
+Note: when the code chunk containing the DALEX calculations is evaluated this causes an error for pdf conversion
+due to a unicode character. I could not solve this issue therefore the code chunk is not evaluated.
+
+```{r,echo=TRUE,eval=TRUE,warning=FALSE}
+set.seed(100)
+trctrl <- trainControl(method = "none")
+
+rfFit <- train(subtype ~ .,
+               data = training,
+               method = "ranger",
+               trCtrl = trctrl,
+               importance = "permutation",
+               tuneGrid = data.frame(mtry = 100,
+                                     min.node.size = 1,
+                                     splitrule = "gini"))
+
+plot(varImp(rfFit), top = 10)
+
+
+
+
+```
+```{r,echo=TRUE,eval=FALSE}
+
+#Permutation drop-out
+explainer <- DALEX::explain(rfFit,
+                            data = training[,-1],
+                            y = as.numeric(training[,1]))
+
+#calculate importance of variables
+explainer_mp <- model_parts(explainer)
+#Plot results
+plot(explainer_mp, max_vars = 10, show_boxplots = FALSE)
+```
+
+4. Come up with a unified importance score by normalizing importance scores from random forests and DALEX, followed by taking the average of those scores. [Difficulty: **Advanced**]
+
+**solution:**
+
+
+
+### Regression
+For this set of problems we will use the regression data set where we tried to predict the age of the sample from the methylation values. The data can be loaded as shown below: 
+```{r, readMethAgeex,eval=TRUE}
+# file path for CpG methylation and age
+fileMethAge=system.file("extdata",
+                      "CpGmeth2Age.rds",
+                      package="compGenomRData")
+# read methylation-age table
+ameth=readRDS(fileMethAge)
+```
+
+1. Run random forest regression and plot the importance metrics. [Difficulty: **Beginner**]
+
+**solution:**
+
+```{r,echo=TRUE,eval=TRUE}
+#Remove predictor variables with low variation across samples
+ameth <- ameth[,c(TRUE,matrixStats::colSds(as.matrix(ameth[,-1])) > 0.1)]
+
+#Split the data
+set.seed(100)
+intrain <- createDataPartition(y = ameth[,1], p= 0.8)[[1]]
+training <- ameth[intrain,]
+testing <- ameth[-intrain,]
+
+trctrl <- trainControl(method="cv", number=10, search="grid")
+
+# Train random forest model
+rfregFit <- train(Age~., 
+                  data = training, 
+                  method = "ranger",
+                  trControl = trctrl,
+                  importance="permutation", 
+                  tuneGrid = data.frame(mtry=50,
+                                        min.node.size = 5,
+                                        splitrule="variance"))
+
+plot(varImp(rfregFit),top=10)
+```
+
+2. Split 20% of the methylation-age data as test data and run elastic net regression on the training portion to tune parameters and test it on the test portion. [Difficulty: **Intermediate**] 
+
+**solution:**
+
+```{r,echo=TRUE,eval=TRUE}
+
+#Splitting was performed in previous exercise
+
+trctrl <- trainControl(method="cv", number=10, search="grid")
+
+#Train elastic net model
+enetFit <- train(Age~., data = training, 
+                 method = "glmnet",
+                 trControl=trctrl,
+                 tuneGrid = data.frame(alpha = 0.5,
+                                       lambda = seq(0.1, 0.7, 0.05)))
+
+# test accuracy 
+class.res <- predict(enetFit, testing[,-1])
+#Print RMSE
+rmse(testing[,1], class.res)
+#Print R^2
+(cor(class.res, testing[,1]))^2
+```
+
+3. Run an ensemble model for regression using the **caretEnsemble** or **mlr** package and compare the results with the elastic net and random forest model. Did the test accuracy increase?
+**HINT:** You need to install these extra packages and learn how to use them in the context of ensemble models. [Difficulty: **Advanced**] 
+
+**solution:**
+
+The test accuracy increased compared to the random forest, but not the elastic net model.
+
+```{r,echo=TRUE,eval=TRUE,warning=FALSE}
+my_control <- trainControl(method = "cv",
+                           number = 5, 
+                           savePredictions = "final",
+                           index=createResample(training$Age, 25),
+                           allowParallel = TRUE)
+
+#train list of models
+model_list <- caretList(Age ~.,
+                        data = training,
+                        trControl = my_control,
+                        methodList = c("lm", "svmRadial", "rf", 
+                                        "xgbTree", "xgbLinear"),
+                        tuneList = NULL,
+                        continue_on_fail = FALSE)
+
+#ensemble of models
+ensemble_1 <- caretEnsemble(model_list, 
+                            metric = "RMSE", 
+                            trControl = my_control)
+
+#ensemble of models using glm
+glm_ensemble <- caretStack(
+  model_list,
+  method = "glm",
+  metric = "RMSE",
+  trControl = trainControl(
+    method = "cv",
+    number = 5,
+    savePredictions = "final"))
+
+#Calculate all the test accuracies
+#rf
+class.res_rf  <- predict(rfregFit, testing[,-1])
+rmse(testing[,1], class.res_rf)
+(cor(testing[,1], class.res_rf))^2
+
+#elastic net
+class.res_enet  <- predict(enetFit, testing[,-1])
+rmse(testing[,1], class.res_enet)
+(cor(testing[,1], class.res_enet))^2
+
+#ensemble
+class.res_ensemble  <- predict(glm_ensemble, testing[,-1])
+rmse(testing[,1], class.res_ensemble)
+(cor(testing[,1], class.res_ensemble))^2
+```

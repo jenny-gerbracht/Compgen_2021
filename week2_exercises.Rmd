@@ -1,0 +1,293 @@
+---
+title: 'compgen2021: Week 2 exercises'
+author: 'Jennifer Gerbracht'
+output:
+  pdf_document: default
+  pdf: default
+---
+
+# Exercises for Week2
+
+For this set of exercises we will be using the expression data shown below:
+```{r dataLoadClu,eval=TRUE, message = FALSE, warning = FALSE}
+expFile=system.file("extdata",
+                    "leukemiaExpressionSubset.rds",
+                    package="compGenomRData")
+mat=readRDS(expFile)
+#Load required libraries
+library(RColorBrewer)
+library(pheatmap)
+library(cluster)
+library(fastICA)
+library(Rtsne)
+```
+
+### Clustering
+
+1. We want to observe the effect of data transformation in this exercise. Scale the expression matrix with the `scale()` function. In addition, try taking the logarithm of the data with the `log2()` function prior to scaling. Make box plots of the unscaled and scaled data sets using the `boxplot()` function. [Difficulty: **Beginner/Intermediate**]
+
+**solution:**
+-
+```{r,echo=TRUE,eval=TRUE, fig.height=10}
+#Transpose the matrix to sample x gene, scale per gene, transpose back to
+#gene x sample
+mat_scaled <- t(scale(t(mat)))
+#Same as above but with log2 taken beforehand
+mat_scaled_log <- t(scale(t(log2(mat))))
+
+par(mfrow = c(3,1))
+#boxplots of the unscaled expression levels per sample
+boxplot(mat,
+        ylim = (c(-4, 15)))
+#boxplots of the scaled expression levels per sample
+boxplot(mat_scaled,
+        xlab = NULL,
+        ylim = (c(-4, 15)))
+#boxplots of the logarithmised and scaled expression levels per sample
+boxplot(mat_scaled_log,
+        xlab = NULL,
+        ylim = (c(-4, 15)))
+ 
+```
+
+
+2. For the same problem above using the unscaled data and different data transformation strategies, use the `ward.d` distance in hierarchical clustering and plot multiple heatmaps. You can try to use the `pheatmap` library or any other library that can plot a heatmap with a dendrogram. Which data-scaling strategy provides more homogeneous clusters with respect to disease types? [Difficulty: **Beginner/Intermediate**]
+
+**solution:**
+The unscaled values provide the most homogeneous clustering.
+```{r,echo=TRUE,eval=TRUE}
+annotation_col <- data.frame(LeukemiaType = substr(colnames(mat),1,3))
+rownames(annotation_col)=colnames(mat)
+
+var <- brewer.pal(n = 5, name = "Dark2")
+names(var) <- unique(annotation_col$LeukemiaType)
+anno_colors <- list(LeukemiaType = var)
+
+pheatmap(mat, 
+         border_color = FALSE,
+         show_rownames = FALSE,
+         show_colnames = FALSE,
+         annotation_col = annotation_col,
+         annotation_colors = anno_colors,
+         scale = "none",
+         clustering_method = "ward.D2")
+
+pheatmap(mat_scaled, 
+         border_color = FALSE,
+         show_rownames = FALSE,
+         show_colnames = FALSE,
+         annotation_col = annotation_col,
+         annotation_colors = anno_colors,
+         scale = "none",
+         clustering_method = "ward.D2")
+
+pheatmap(mat_scaled_log, 
+         border_color = FALSE,
+         show_rownames = FALSE,
+         show_colnames = FALSE,
+         annotation_col = annotation_col,
+         annotation_colors = anno_colors,
+         scale = "none",
+         clustering_method = "ward.D2")
+ 
+```
+
+
+3. For the transformed and untransformed data sets used in the exercise above, use the silhouette for deciding number of clusters using hierarchical clustering. [Difficulty: **Intermediate/Advanced**]
+
+**solution:**
+For the unscaled values the k = 4, for the scaled values k = 3.
+```{r,echo=TRUE,eval=TRUE,fig.show="hold", out.width="50%"}
+set.seed(100)
+Ks <- sapply(2:10,
+             function(i)
+               summary(silhouette(pam(t(mat),k = i)))$avg.width)
+plot(2:10, 
+     Ks, 
+     xlab="k", 
+     ylab="av. silhouette", 
+     type = "b",
+     pch=19)
+
+set.seed(100)
+Ks <- sapply(2:10,
+             function(i)
+               summary(silhouette(pam(t(mat_scaled),k = i)))$avg.width)
+plot(2:10,
+     Ks,
+     xlab="k",
+     ylab="av. silhouette",
+     type="b",
+     pch=19)
+
+set.seed(100)
+Ks <- sapply(2:10,
+             function(i)
+               summary(silhouette(pam(t(mat_scaled_log),k = i)))$avg.width)
+plot(2:10,
+     Ks,
+     xlab="k",
+     ylab="av. silhouette",
+     type="b",
+     pch=19)
+ 
+```
+
+
+4. Now, use the Gap Statistic for deciding the number of clusters in hierarchical clustering. Is the same number of clusters identified by two methods? Is it similar to the number of clusters obtained using the k-means algorithm in the unsupervised learning chapter. [Difficulty: **Intermediate/Advanced**]
+
+**solution:**
+The number of clusters as determined by the "firstSEmax" method is 6 in all cases. 
+In the unsupervised learning chapter when using the k-means algorithm a pre-determined number of clusters was chosen, 5 in this case.
+```{r,echo=TRUE,eval=TRUE,fig.show="hold", out.width="50%"}
+
+# define the clustering function
+pam1 <- function(x,k) 
+  list(cluster = pam(x,k, cluster.only=TRUE))
+
+# calculate the gap statistic
+set.seed(100)
+pam.gap_mat <- clusGap(t(mat), FUN = pam1, K.max = 8, B = 50)
+set.seed(100)
+pam.gap_mat_scaled <- clusGap(t(mat_scaled), FUN = pam1, K.max = 8, B = 50)
+set.seed(100)
+pam.gap_mat_scaled_log <- clusGap(t(mat_scaled_log), FUN = pam1, K.max = 8, B = 50)
+
+pam.gap_mat
+pam.gap_mat_scaled
+pam.gap_mat_scaled_log
+
+# plot the gap statistic accross k values
+plot(pam.gap_mat, main = "Gap statistic for the original matrix")
+plot(pam.gap_mat_scaled, main = "Gap statistic for the scaled matrix")
+plot(pam.gap_mat_scaled_log, main = "Gap statistic for the logarithmised and scaled matrix")
+```
+
+
+### Dimension reduction
+We will be using the leukemia expression data set again. You can use it as shown in the clustering exercises.
+
+1. Do PCA on the expression matrix using the `princomp()` function and then use the `screeplot()` function to visualize the explained variation by eigenvectors. How many top components explain 95% of the variation? [Difficulty: **Beginner**]
+
+**solution:**
+I could not use the `princomp()` function because there were more variables (genes) than observations (samples). I use the
+`prcomp()`function instead. As can be seen after the use of the `summary()`, function the first 35 components explain 95% of
+the variance.
+
+```{r,echo=TRUE,eval=TRUE}
+#pr <- princomp(scale(t(mat)))
+pr <- prcomp(scale(t(mat)))
+screeplot(pr)
+summary(pr)
+```
+
+
+2. Our next tasks are removing the eigenvectors and reconstructing the matrix using SVD, then we need to calculate the reconstruction error as the difference between the original and the reconstructed matrix. HINT: You have to use the `svd()` function and equalize eigenvalue to $0$ for the component you want to remove. [Difficulty: **Intermediate/Advanced**]
+
+**solution:**
+I first reconstruct the matrix using all components and then using only the first 35 components.
+I calculate the similarity of the matrices I converted them to vectors and look at the correlation between the two sets of values.
+```{r,echo=TRUE,eval=TRUE}
+original <- scale(t(mat))
+
+mat_svd <- svd(original) # apply SVD
+#eigenarrays on columns, same dimension as input matrix
+u <- mat_svd$u
+#eigenvalues: their square is proportional to explained variation by each eigenvector
+d <- mat_svd$d
+#eigenvectors on the rows: eigenvectors point to the direction of highest variance in the data
+#in R: columns are eigenvectors
+v <- mat_svd$v
+
+#Reconstruct the matrix with all components
+mat_reconstructed <- as.matrix(as.matrix(u) %*% diag(d) %*% as.matrix(t(v)))
+#Retain only the first 35 components 
+d_remaining <- c(d[1:35], rep(0, length(d) - 35))
+mat_reconstructed_35 <- as.matrix(u) %*% diag(d_remaining) %*% as.matrix(t(v))
+
+#Calculate differences between original and reconstructed matrices
+cor(c(original), c(mat_reconstructed))
+cor(c(original), c(mat_reconstructed_35))
+```
+
+
+3. Produce a 10-component ICA from the expression data set. Remove each component and measure the reconstruction error without that component. Rank the components by decreasing reconstruction-error. [Difficulty: **Advanced**]
+
+**solution:**
+ICA is performed and the matrix reconstructed. Then, one matrix is reconstructed for each component missing. Finally, the correlation
+between the sets of values of each reconstructed matrix with the original matrix is calculated and the components ranked from
+lowest to highest correlation. This should correspond to a decreasing reconstruction error. 
+```{r,echo=TRUE,eval=TRUE}
+#Perform ICA
+set.seed(100)
+ica.res <- fastICA(scale(t(mat)), n.comp = 10) 
+
+#obtain the pre-processed data matrix
+original_mat <- ica.res$X
+#obtain the matrix reconstructed using 10 components
+tencomps_mat <- ica.res$S %*% ica.res$A
+
+# Generate a list of matrices with 1 component each removed. x_comps[[i]] contains
+# the matrix with component i (from 1 to 10) removed
+x_comps <- list()
+for (i in 1:10) {
+  x_comps[[i]] <- as.matrix(ica.res$S[,-i]) %*% as.matrix(ica.res$A[-i,])
+}
+
+#Compare the distances of the matrices
+cor(c(original_mat), c(tencomps_mat))
+
+x_comps_cor <- list()
+for (i in 1:10) {
+  x_comps_cor[[i]] <- cor(c(original_mat), c(x_comps[[i]]))
+}
+#Order the components by correlation with the original matrix
+#Order is from smallest correlation (= higher reconstruction error) 
+#to highest (=lowest reconstruction error)
+
+unlist(x_comps_cor)
+order(unlist(x_comps_cor))
+```
+
+
+4. In this exercise we use the `Rtsne()` function on the leukemia expression data set. Try to increase and decrease perplexity t-sne, and describe the observed changes in 2D plots. [Difficulty: **Beginner**]
+
+**solution:**
+With perplexity = 2 a lot of the conditions are clustered tightly together, however the AML condition does not form a cluster and
+there are some outliers in the other conditions (ALL and CML).
+With perplexity = 5 the samples cluster together as expected, the distance between the clusters is not high except for the ALL samples.
+With perplexity = 10 the samples cluster together as expected and, there is distance beween the clusters except for the CML and NoL samples.
+One sample of the AML group clusters together with the samples of the CLL group.
+```{r,echo=TRUE,eval=TRUE}
+set.seed(100) 
+tsne_out_2 <- Rtsne(t(mat), perplexity = 2)
+set.seed(100)
+tsne_out_5 <- Rtsne(t(mat), perplexity = 5)
+set.seed(100)
+tsne_out_10 <- Rtsne(t(mat), perplexity = 10)
+
+plot(tsne_out_2$Y,
+     col =as.factor(annotation_col$LeukemiaType),
+     pch = 19,
+     main = "Perplexity 2")
+legend("topright",
+       legend=unique(annotation_col$LeukemiaType),
+       fill =palette("default"),
+       border=NA,box.col=NA)
+plot(tsne_out_5$Y,
+     col =as.factor(annotation_col$LeukemiaType),
+     pch = 19,
+     main = "Perplexity 5")
+legend("topright",
+       legend=unique(annotation_col$LeukemiaType),
+       fill =palette("default"),
+       border=NA,box.col=NA)
+plot(tsne_out_10$Y,
+     col =as.factor(annotation_col$LeukemiaType),
+     pch = 19,
+     main = "Perplexity 10")
+legend("topright",
+       legend=unique(annotation_col$LeukemiaType),
+       fill =palette("default"),
+       border=NA,box.col=NA)
+```
