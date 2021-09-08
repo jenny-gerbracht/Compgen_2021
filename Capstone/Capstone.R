@@ -1,4 +1,5 @@
 library(caretEnsemble)
+library(dplyr)
 
 ###
 #models
